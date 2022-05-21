@@ -1,27 +1,32 @@
+# You can override the included template(s) by including variable overrides
+# SAST customization: https://docs.gitlab.com/ee/user/application_security/sast/#customizing-the-sast-settings
+# Secret Detection customization: https://docs.gitlab.com/ee/user/application_security/secret_detection/#customizing-settings
+# Dependency Scanning customization: https://docs.gitlab.com/ee/user/application_security/dependency_scanning/#customizing-the-dependency-scanning-settings
+# Container Scanning customization: https://docs.gitlab.com/ee/user/application_security/container_scanning/#customizing-the-container-scanning-settings
+# Note that environment variables can be set in several places
+# See https://docs.gitlab.com/ee/ci/variables/#cicd-variable-precedence
 image: ubuntu:22.04
-
 variables:
   DEBIAN_FRONTEND: noninteractive
-
 before_script:
-  - apt-get --quiet update --yes >/dev/null
-  - apt-get --quiet install --yes clang-14 clang-tidy-14 clang-format-14 git libdrm-dev blueprint-tools libgtest-dev make >/dev/null
-
+- apt-get --quiet update --yes >/dev/null
+- apt-get --quiet install --yes clang-14 clang-tidy-14 clang-format-14 git libdrm-dev
+  blueprint-tools libgtest-dev make >/dev/null
 stages:
-  - build
-  - style
-
+- build
+- style
 build:
   stage: build
   script:
-    - make -f .ci/Makefile
+  - make -f .ci/Makefile
   artifacts:
     when: on_failure
     untracked: true
-
 checkstyle:
   stage: style
   script: "./.ci/.gitlab-ci-checkcommit.sh"
   artifacts:
     when: on_failure
     untracked: true
+include:
+- template: Security/Secret-Detection.gitlab-ci.yml
