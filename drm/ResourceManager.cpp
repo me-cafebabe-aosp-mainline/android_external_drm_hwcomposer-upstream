@@ -19,6 +19,7 @@
 #include "ResourceManager.h"
 
 #include <android-base/strings.h>
+#include <dirent.h>
 #include <sys/stat.h>
 
 #include <ctime>
@@ -136,14 +137,77 @@ auto ResourceManager::GetTimeMonotonicNs() -> int64_t {
   return (int64_t(ts.tv_sec) * kNsInSec) + int64_t(ts.tv_nsec);
 }
 
+void ResourceManager::UpdateBacklights() {
+  const std::string kBase = "/sys/class/backlight";
+  std::unique_ptr<DIR, decltype(&closedir)> dir(opendir(kBase.c_str()),
+                                                closedir);
+  if (!dir) {
+    ALOGE("Could not open the backlight sysfs node (%d)\n", errno);
+    return;
+  }
+
+  dirent *de;
+  while ((de = readdir(dir.get())) != nullptr) {
+    if (!strcmp(de->d_name, ".") || !strcmp(de->d_name, ".."))
+      continue;
+
+    std::string name = de->d_name;
+    std::string sub = kBase + "/" + name;
+    std::unique_ptr<DIR, decltype(&closedir)> subdir(opendir(sub.c_str()),
+                                                     closedir);
+    if (!subdir) {
+      ALOGE("Could not open backlight %s (%d)!!\n", sub.c_str(), errno);
+      continue;
+    }
+
+    // This assumes backlight names are unique and that a backlight with the
+    // same name and different attributes could not replace another.
+    if (backlights_.find(name) != backlights_.end())
+      continue;
+
+    std::unique_ptr<BacklightController> controller(
+        BacklightController::CreateInstance(name.c_str()));
+    if (controller) {
+      backlights_.emplace(std::make_pair(de->d_name, std::move(controller)));
+    } else {
+      ALOGE("Failed to initialize backlight controller %s, marking absent\n",
+            de->d_name);
+      backlights_.emplace(std::make_pair(de->d_name, std::nullopt));
+    }
+  }
+}
+
+void ResourceManager::TryAssignBacklightToConnector(DrmConnector *conn) {
+  // Very simple first come first served assignment on internal connectors for
+  // now. This will need to change when multiple backlights are present, but
+  // hopefully we will have a more deterministic way to map backlight->connector
+  // before that happens.
+  if (!conn->IsInternal() || conn->HasBacklight() || backlights_.empty())
+    return;
+
+  for (auto &bl : backlights_) {
+    // Backlight is already assigned.
+    if (bl.second == std::nullopt)
+      continue;
+
+    // Claim this backlight for the connector.
+    conn->SetBacklight(std::move(*bl.second));
+    bl.second = std::nullopt;
+    return;
+  }
+}
+
 void ResourceManager::UpdateFrontendDisplays() {
   auto ordered_connectors = GetOrderedConnectors();
+
+  UpdateBacklights();
 
   for (auto *conn : ordered_connectors) {
     conn->UpdateModes();
     auto connected = conn->IsConnected();
     auto attached = attached_pipelines_.count(conn) != 0;
 
+    TryAssignBacklightToConnector(conn);
     if (connected != attached) {
       ALOGI("%s connector %s", connected ? "Attaching" : "Detaching",
             conn->GetName().c_str());

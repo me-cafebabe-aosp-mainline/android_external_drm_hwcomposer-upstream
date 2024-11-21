@@ -22,6 +22,7 @@
 #include <string>
 #include <vector>
 
+#include "BacklightController.h"
 #include "DrmEncoder.h"
 #include "DrmMode.h"
 #include "DrmProperty.h"
@@ -84,6 +85,12 @@ class DrmConnector : public PipelineBindable<DrmConnector> {
   std::string GetName() const;
 
   int UpdateModes();
+
+  auto HasBacklight() const -> bool {
+    return backlight_controller_ != nullptr;
+  }
+  void SetBacklight(std::unique_ptr<BacklightController> backlight);
+  auto SetBrightness(std::optional<float> brightness) -> bool;
 
   bool IsLinkStatusGood();
 
@@ -189,5 +196,7 @@ class DrmConnector : public PipelineBindable<DrmConnector> {
 
   std::map<Colorspace, uint64_t> colorspace_enum_map_;
   std::map<uint64_t, PanelOrientation> panel_orientation_enum_map_;
+
+  std::unique_ptr<BacklightController> backlight_controller_;
 };
 }  // namespace android

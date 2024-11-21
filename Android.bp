@@ -93,6 +93,7 @@ filegroup {
         "compositor/DrmKmsPlan.cpp",
         "compositor/FlatteningController.cpp",
 
+        "drm/BacklightController.cpp",
         "drm/DrmAtomicStateManager.cpp",
         "drm/DrmConnector.cpp",
         "drm/DrmCrtc.cpp",
