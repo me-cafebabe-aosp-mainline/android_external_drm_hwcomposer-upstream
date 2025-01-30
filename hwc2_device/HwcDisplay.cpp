@@ -57,6 +57,14 @@ uint64_t To3132FixPt(float in) {
   return static_cast<uint64_t>(in * kValueScale) & kValueMask;
 }
 
+bool TransformHasOffsetValue(const float *matrix) {
+  for (int i = 12; i < 14; i++) {
+    if (matrix[i] != 0.F)
+      return true;
+  }
+  return false;
+}
+
 auto ToColorTransform(const std::array<float, 16> &color_transform_matrix) {
   /* HAL provides a 4x4 float type matrix:
    * | 0  1  2  3|
@@ -909,9 +917,9 @@ HWC2::Error HwcDisplay::SetColorTransform(const float *matrix, int32_t hint) {
     case HAL_COLOR_TRANSFORM_ARBITRARY_MATRIX:
       // Without HW support, we cannot correctly process matrices with an offset.
       {
-        for (int i = 12; i < 14; i++) {
-          if (matrix[i] != 0.F)
-            return HWC2::Error::Unsupported;
+        if (TransformHasOffsetValue(matrix)) {
+          ALOGW("DRM API does not support CTM with offsets.");
+          return HWC2::Error::Unsupported;
         }
         std::array<float, 16> aidl_matrix = kIdentityMatrix;
         memcpy(aidl_matrix.data(), matrix, aidl_matrix.size() * sizeof(float));
@@ -1185,11 +1193,6 @@ HWC2::Error HwcDisplay::GetDisplayCapabilities(uint32_t *outNumCapabilities,
 
   // Skip client CTM if user requested DRM_OR_IGNORE
   if (GetHwc()->GetResMan().GetCtmHandling() == CtmHandling::kDrmOrIgnore)
-    skip_ctm = true;
-
-  // Skip client CTM if DRM can handle it
-  if (!skip_ctm && !IsInHeadlessMode() &&
-      GetPipe().crtc->Get()->GetCtmProperty())
     skip_ctm = true;
 
   if (!skip_ctm) {
