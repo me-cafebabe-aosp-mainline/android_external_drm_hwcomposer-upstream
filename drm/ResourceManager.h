@@ -20,6 +20,7 @@
 #include <mutex>
 #include <set>
 
+#include "BacklightController.h"
 #include "DrmDevice.h"
 #include "DrmDisplayPipeline.h"
 #include "DrmFbImporter.h"
@@ -77,10 +78,14 @@ class ResourceManager {
 
  private:
   auto GetOrderedConnectors() -> std::vector<DrmConnector *>;
+  void UpdateBacklights();
+  void TryAssignBacklightToConnector(DrmConnector *conn);
   void UpdateFrontendDisplays();
   void DetachAllFrontendDisplays();
 
   std::vector<std::unique_ptr<DrmDevice>> drms_;
+  std::map<std::string, std::optional<std::unique_ptr<BacklightController>>>
+      backlights_;
   std::set<std::string> displays_;
 
   // Android properties:

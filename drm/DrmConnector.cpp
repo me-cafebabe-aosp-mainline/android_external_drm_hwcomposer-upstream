@@ -156,6 +156,8 @@ auto DrmConnector::Init()-> bool {
   GetOptionalConnectorProperty("HDR_OUTPUT_METADATA",
                                &hdr_output_metadata_property_);
 
+  GetOptionalConnectorProperty("min bpc", &min_bpc_property_);
+
   if (GetOptionalConnectorProperty("panel orientation", &panel_orientation_)) {
     panel_orientation_
         .AddEnumToMapReverse("Normal",
@@ -176,6 +178,16 @@ auto DrmConnector::Init()-> bool {
   }
 
   return true;
+}
+
+void DrmConnector::SetBacklight(
+    std::unique_ptr<BacklightController> backlight) {
+  backlight_controller_ = std::move(backlight);
+}
+
+auto DrmConnector::SetBrightness(std::optional<float> brightness) -> bool {
+  return HasBacklight() ? backlight_controller_->SetBrightness(brightness)
+                        : false;
 }
 
 int DrmConnector::UpdateEdidProperty() {

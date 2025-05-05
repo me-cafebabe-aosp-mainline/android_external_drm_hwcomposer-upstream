@@ -22,6 +22,7 @@
 #include <string>
 #include <vector>
 
+#include "BacklightController.h"
 #include "DrmEncoder.h"
 #include "DrmMode.h"
 #include "DrmProperty.h"
@@ -85,6 +86,12 @@ class DrmConnector : public PipelineBindable<DrmConnector> {
 
   int UpdateModes();
 
+  auto HasBacklight() const -> bool {
+    return backlight_controller_ != nullptr;
+  }
+  void SetBacklight(std::unique_ptr<BacklightController> backlight);
+  auto SetBrightness(std::optional<float> brightness) -> bool;
+
   bool IsLinkStatusGood();
 
   auto &GetModes() const {
@@ -113,6 +120,10 @@ class DrmConnector : public PipelineBindable<DrmConnector> {
 
   auto &GetContentTypeProperty() const {
     return content_type_property_;
+  }
+
+  auto &GetMinBpcProperty() const {
+    return min_bpc_property_;
   }
 
   auto &GetHdrOutputMetadataProperty() const {
@@ -173,6 +184,7 @@ class DrmConnector : public PipelineBindable<DrmConnector> {
   DrmProperty edid_property_;
   DrmProperty colorspace_property_;
   DrmProperty content_type_property_;
+  DrmProperty min_bpc_property_;
   DrmProperty hdr_output_metadata_property_;
 
   DrmProperty link_status_property_;
@@ -184,5 +196,7 @@ class DrmConnector : public PipelineBindable<DrmConnector> {
 
   std::map<Colorspace, uint64_t> colorspace_enum_map_;
   std::map<uint64_t, PanelOrientation> panel_orientation_enum_map_;
+
+  std::unique_ptr<BacklightController> backlight_controller_;
 };
 }  // namespace android

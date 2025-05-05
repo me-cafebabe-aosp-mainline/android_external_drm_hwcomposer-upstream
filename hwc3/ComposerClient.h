@@ -25,6 +25,7 @@
 #include "hwc3/Utils.h"
 #include "utils/Mutex.h"
 
+using AidlHdcpLevels = aidl::android::hardware::drm::HdcpLevels;
 using AidlPixelFormat = aidl::android::hardware::graphics::common::PixelFormat;
 using AidlNativeHandle = aidl::android::hardware::common::NativeHandle;
 
@@ -151,8 +152,15 @@ class ComposerClient : public BnComposerClient {
   ndk::ScopedAStatus notifyExpectedPresent(
       int64_t display, const ClockMonotonicTimestamp& expected_present_time,
       int32_t frame_interval_ns) override;
+  ndk::ScopedAStatus startHdcpNegotiation(int64_t display,
+      const AidlHdcpLevels& levels) override;
 
 #endif
+
+  ndk::ScopedAStatus getMaxLayerPictureProfiles(
+      int64_t display, int32_t* maxProfiles) override;
+  ndk::ScopedAStatus getLuts(int64_t, const std::vector<Buffer>&,
+                             std::vector<Luts>* out_luts) override;
 
  protected:
   ::ndk::SpAIBinder createBinder() override;
@@ -167,6 +175,8 @@ class ComposerClient : public BnComposerClient {
 
   // Display commands
   void ExecuteDisplayCommand(const DisplayCommand& command);
+  void ExecuteSetDisplayBrightness(uint64_t display_id,
+                                   const DisplayBrightness& brightness);
   void ExecuteSetDisplayClientTarget(uint64_t display_id,
                                      const ClientTarget& command);
   void ExecuteSetDisplayOutputBuffer(uint64_t display_id, const Buffer& buffer);

@@ -41,6 +41,8 @@ static int32_t ConfigErrorToHWC2(HwcDisplay::ConfigError result) {
       return static_cast<int32_t>(HWC2::Error::SeamlessNotAllowed);
     case HwcDisplay::ConfigError::kSeamlessNotPossible:
       return static_cast<int32_t>(HWC2::Error::SeamlessNotPossible);
+    case HwcDisplay::ConfigError::kConfigFailed:
+      return static_cast<int32_t>(HWC2::Error::BadConfig);
     case HwcDisplay::ConfigError::kNone:
       return static_cast<int32_t>(HWC2::Error::None);
   }

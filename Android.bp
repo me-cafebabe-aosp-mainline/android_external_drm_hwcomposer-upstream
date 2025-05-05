@@ -12,6 +12,23 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+package {
+    default_applicable_licenses: ["external_drm_hwcomposer_license"],
+}
+
+// Added automatically by a large-scale-change
+// See: http://go/android-license-faq
+license {
+    name: "external_drm_hwcomposer_license",
+    visibility: [":__subpackages__"],
+    license_kinds: [
+        "SPDX-license-identifier-Apache-2.0",
+    ],
+    license_text: [
+        "NOTICE",
+    ],
+}
+
 cc_library_headers {
     name: "drm_hwcomposer_headers",
     vendor: true,
@@ -76,6 +93,7 @@ filegroup {
         "compositor/DrmKmsPlan.cpp",
         "compositor/FlatteningController.cpp",
 
+        "drm/BacklightController.cpp",
         "drm/DrmAtomicStateManager.cpp",
         "drm/DrmConnector.cpp",
         "drm/DrmCrtc.cpp",
@@ -154,7 +172,7 @@ cc_defaults {
     ],
 
     shared_libs: [
-        "android.hardware.graphics.composer3-V3-ndk",
+        "android.hardware.graphics.composer3-V4-ndk",
         "libbase",
         "libbinder_ndk",
         "liblog",

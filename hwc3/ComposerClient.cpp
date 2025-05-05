@@ -30,6 +30,8 @@
 #include <aidl/android/hardware/graphics/composer3/Composition.h>
 #include <aidl/android/hardware/graphics/composer3/DisplayRequest.h>
 #include <aidl/android/hardware/graphics/composer3/IComposerClient.h>
+#include <aidl/android/hardware/graphics/composer3/Luts.h>
+#include <aidl/android/hardware/graphics/composer3/OutputType.h>
 #include <aidl/android/hardware/graphics/composer3/PowerMode.h>
 #include <aidl/android/hardware/graphics/composer3/PresentOrValidate.h>
 #include <aidl/android/hardware/graphics/composer3/RenderIntent.h>
@@ -279,7 +281,8 @@ DisplayConfiguration HwcDisplayConfigToAidlConfiguration(
        .width = config.mode.GetRawMode().hdisplay,
        .height = config.mode.GetRawMode().vdisplay,
        .configGroup = static_cast<int32_t>(config.group_id),
-       .vsyncPeriod = config.mode.GetVSyncPeriodNs()};
+       .vsyncPeriod = config.mode.GetVSyncPeriodNs(),
+       .hdrOutputType = static_cast<OutputType>(config.output_type)};
 
   if (width > 0) {
     static const float kMmPerInch = 25.4;
@@ -688,6 +691,9 @@ void ComposerClient::DispatchLayerCommand(int64_t display_id,
   if (command.sidebandStream) {
     cmd_result_writer_->AddError(hwc3::Error::kUnsupported);
   }
+  if (command.luts) {
+    cmd_result_writer_->AddError(hwc3::Error::kUnsupported);
+  }
   // TODO: Blocking region handling missing.
   // TODO: Layer visible region.
   // TODO: Per-frame metadata.
@@ -701,12 +707,6 @@ void ComposerClient::ExecuteDisplayCommand(const DisplayCommand& command) {
   HwcDisplay* display = hwc_->GetDisplay(display_id);
   if (display == nullptr) {
     cmd_result_writer_->AddError(hwc3::Error::kBadDisplay);
-    return;
-  }
-
-  if (command.brightness) {
-    // TODO: Implement support for display brightness.
-    cmd_result_writer_->AddError(hwc3::Error::kUnsupported);
     return;
   }
 
@@ -724,6 +724,10 @@ void ComposerClient::ExecuteDisplayCommand(const DisplayCommand& command) {
 
   if (cmd_result_writer_->HasError()) {
     return;
+  }
+
+  if (command.brightness) {
+    ExecuteSetDisplayBrightness(command.display, *command.brightness);
   }
 
   if (command.clientTarget) {
@@ -938,8 +942,12 @@ ndk::ScopedAStatus ComposerClient::getDisplayCapabilities(
     int64_t display_id, std::vector<DisplayCapability>* caps) {
   DEBUG_FUNC();
   const std::unique_lock lock(hwc_->GetResMan().GetMainLock());
-  if (GetDisplay(display_id) == nullptr) {
+  HwcDisplay* display = GetDisplay(display_id);
+  if (display == nullptr) {
     return ToBinderStatus(hwc3::Error::kBadDisplay);
+  }
+  if (display->GetPipe().connector->Get()->HasBacklight()) {
+    caps->emplace_back(DisplayCapability::BRIGHTNESS);
   }
 
   // Skip color transform altogether if device/drm cannot support it.
@@ -1333,6 +1341,8 @@ ndk::ScopedAStatus ComposerClient::setActiveConfigWithConstraints(
       return ToBinderStatus(hwc3::Error::kSeamlessNotAllowed);
     case HwcDisplay::ConfigError::kSeamlessNotPossible:
       return ToBinderStatus(hwc3::Error::kSeamlessNotPossible);
+    case HwcDisplay::ConfigError::kConfigFailed:
+      return ToBinderStatus(hwc3::Error::kConfigFailed);
     case HwcDisplay::ConfigError::kNone:
       return ndk::ScopedAStatus::ok();
   }
@@ -1572,7 +1582,21 @@ ndk::ScopedAStatus ComposerClient::notifyExpectedPresent(
   return ToBinderStatus(hwc3::Error::kUnsupported);
 }
 
+ndk::ScopedAStatus ComposerClient::startHdcpNegotiation(
+    int64_t /*display*/, const AidlHdcpLevels& /*levels*/) {
+  return ToBinderStatus(hwc3::Error::kUnsupported);
+}
+
 #endif
+
+ndk::ScopedAStatus ComposerClient::getMaxLayerPictureProfiles(int64_t, int32_t*) {
+  return ToBinderStatus(hwc3::Error::kUnsupported);
+}
+
+ndk::ScopedAStatus ComposerClient::getLuts(int64_t, const std::vector<Buffer>&,
+    std::vector<Luts>*) {
+  return ToBinderStatus(hwc3::Error::kUnsupported);
+}
 
 std::string ComposerClient::Dump() {
   return hwc_->DumpState();
@@ -1582,6 +1606,26 @@ std::string ComposerClient::Dump() {
   auto binder = BnComposerClient::createBinder();
   AIBinder_setInheritRt(binder.get(), true);
   return binder;
+}
+
+void ComposerClient::ExecuteSetDisplayBrightness(
+    uint64_t display_id, const DisplayBrightness& brightness) {
+  auto* display = GetDisplay(display_id);
+  if (display == nullptr) {
+    cmd_result_writer_->AddError(hwc3::Error::kBadDisplay);
+    return;
+  }
+  if (!display->GetPipe().connector->Get()->HasBacklight()) {
+    cmd_result_writer_->AddError(hwc3::Error::kUnsupported);
+    return;
+  }
+
+  if (!display->GetPipe().connector->Get()->SetBrightness(
+          brightness.brightness > 0.0f
+              ? std::optional<float>(brightness.brightness)
+              : std::nullopt)) {
+    cmd_result_writer_->AddError(hwc3::Error::kBadParameter);
+  }
 }
 
 void ComposerClient::ExecuteSetDisplayClientTarget(
