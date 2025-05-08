@@ -64,6 +64,8 @@ class DrmAtomicStateManager {
   ~DrmAtomicStateManager() = default;
 
   auto ExecuteAtomicCommit(AtomicCommitArgs &args) -> int;
+  void CleanFailedCommit();
+  void WaitLastFrame();
   auto ActivateDisplayUsingDPMS() -> int;
 
   void StopThread() {
@@ -103,6 +105,10 @@ class DrmAtomicStateManager {
         .crtc_active_state = prev_frame_state->crtc_active_state,
     };
   }
+  
+  auto FillAtomicModeReq(drmModeAtomicReq* pset, AtomicCommitArgs &args, 
+                         DrmDevice *drm, KmsState& new_frame_state, 
+                         uint64_t out_fence, uint64_t wb_fence) -> int;
 
   DrmDisplayPipeline *pipe_{};
 
