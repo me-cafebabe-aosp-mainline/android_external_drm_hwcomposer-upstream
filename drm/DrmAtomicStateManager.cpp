@@ -218,6 +218,20 @@ auto DrmAtomicStateManager::FillAtomicModeReq(
   return 0;
 }
 
+auto DrmAtomicStateManager::AppendPendingConfig(AtomicCommitArgs &args, drmModeAtomicReq *pset) -> int {
+  staged_frame_state_ = NewFrameState();
+  auto *drm = pipe_->device;
+  pending_out_fence_ = -1;
+  pending_wb_fence_ = -1;
+  const auto err = FillAtomicModeReq(pset, args, drm, staged_frame_state_, uint64_t(&pending_out_fence_), uint64_t(&pending_wb_fence_));
+  if (err != 0) {
+    ALOGE("FillAtomicModeReq returned: %i (errno: %i)", err, errno);
+    return err;
+  }
+
+  return 0;
+}
+
 void DrmAtomicStateManager::WaitLastFrame() {
   if (last_present_fence_) {
     // NOLINTNEXTLINE(misc-const-correctness)
@@ -248,13 +262,13 @@ auto DrmAtomicStateManager::CommitFrame(AtomicCommitArgs &args) -> int {
     ALOGE("Failed to allocate property set");
     return -ENOMEM;
   }
+
   auto err = FillAtomicModeReq(pset.get(), args, drm, new_frame_state, 
                                uint64_t(&out_fence), uint64_t(&wb_fence));
   if (err != 0) {
     ALOGE("FillAtomicModeReq returned: %i (errno: %i)", err, errno);
     return err;
   }
-
 
   uint32_t flags = DRM_MODE_ATOMIC_ALLOW_MODESET;
   const int error_buf_max_size = 64;

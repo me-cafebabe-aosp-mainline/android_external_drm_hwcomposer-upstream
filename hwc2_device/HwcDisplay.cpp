@@ -170,6 +170,83 @@ auto HwcDisplay::GetLastRequestedConfig() const -> const HwcDisplayConfig * {
   return GetConfig(staged_mode_config_id_.value_or(configs_.active_config_id));
 }
 
+void  HwcDisplay::WaitReadyForConfig() {
+  GetPipe().atomic_state_manager->WaitLastFrame();
+}
+
+HwcDisplay::ConfigError HwcDisplay::AppendConfig(hwc2_config_t config, drmModeAtomicReq* pset) {
+  const HwcDisplayConfig *new_config = GetConfig(config);
+  if (new_config == nullptr) {
+    ALOGE("Could not find active mode for %u", config);
+    return ConfigError::kBadConfig;
+  }
+
+  const HwcDisplayConfig *current_config = GetCurrentConfig();
+
+  const uint32_t width = new_config->mode.GetRawMode().hdisplay;
+  const uint32_t height = new_config->mode.GetRawMode().vdisplay;
+
+  std::optional<LayerData> modeset_layer_data;
+  // If a client layer has already been provided, and its size matches the
+  // new config, use it for the modeset.
+  if (client_layer_.IsLayerUsableAsDevice() && current_config &&
+      current_config->mode.GetRawMode().hdisplay == width &&
+      current_config->mode.GetRawMode().vdisplay == height) {
+    ALOGV("Use existing client_layer for blocking config.");
+    modeset_layer_data = client_layer_.GetLayerData();
+  } else {
+    ALOGV("Allocate modeset buffer.");
+    auto modeset_buffer =  //
+        GetPipe().device->CreateBufferForModeset(width, height);
+    if (modeset_buffer) {
+      auto modeset_layer = std::make_unique<HwcLayer>(this);
+      HwcLayer::LayerProperties properties;
+      properties.slot_buffer = {
+          .slot_id = 0,
+          .bi = modeset_buffer,
+      };
+      properties.active_slot = {
+          .slot_id = 0,
+          .fence = {},
+      };
+      properties.blend_mode = BufferBlendMode::kNone;
+      modeset_layer->SetLayerProperties(properties);
+      modeset_layer->PopulateLayerData();
+      modeset_layer_data = modeset_layer->GetLayerData();
+    }
+  }
+
+  ALOGV("Create modeset commit.");
+  // Create atomic commit args for a blocking modeset. There's no need to do a
+  // separate test commit, since the commit does a test anyways.
+  AtomicCommitArgs commit_args = CreateModesetCommit(new_config,
+                                                     modeset_layer_data);
+  commit_args.blocking = true;
+  
+  int ret = GetPipe().atomic_state_manager->AppendPendingConfig(commit_args, pset);
+
+  if (ret) {
+    ALOGE("Blocking config failed: %d", ret);
+    return HwcDisplay::ConfigError::kBadConfig;
+  }
+
+  return ConfigError::kNone;
+}
+
+HwcDisplay::ConfigError HwcDisplay::FinishApplyConfig(hwc2_config_t config, HwcDisplay::ConfigError config_error) {
+  if (config_error == ConfigError::kNone) {
+    const HwcDisplayConfig *new_config = GetConfig(config);
+    ALOGV("Blocking config succeeded.");
+    configs_.active_config_id = config;
+    staged_mode_config_id_.reset();
+    vsync_worker_->SetVsyncPeriodNs(new_config->mode.GetVSyncPeriodNs());
+    // set new vsync period
+    return ConfigError::kNone;
+  }
+  GetPipe().atomic_state_manager->CleanFailedCommit();
+  return config_error;
+}
+
 HwcDisplay::ConfigError HwcDisplay::SetConfig(hwc2_config_t config) {
   const HwcDisplayConfig *new_config = GetConfig(config);
   if (new_config == nullptr) {

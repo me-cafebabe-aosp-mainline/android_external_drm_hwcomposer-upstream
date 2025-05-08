@@ -92,6 +92,12 @@ class HwcDisplay {
   // committed to the kernel on successful return.
   ConfigError SetConfig(hwc2_config_t config);
 
+  ConfigError ApplyConfig(hwc2_config_t config);
+
+  void WaitReadyForConfig();
+  ConfigError AppendConfig(hwc2_config_t config, drmModeAtomicReq* pset);
+  ConfigError FinishApplyConfig(hwc2_config_t config, ConfigError config_error);
+
   // Queue a configuration change to take effect in the future.
   auto QueueConfig(hwc2_config_t config, int64_t desired_time, bool seamless,
                    QueuedConfigTiming *out_timing) -> ConfigError;
