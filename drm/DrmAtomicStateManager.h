@@ -64,6 +64,8 @@ class DrmAtomicStateManager {
   ~DrmAtomicStateManager() = default;
 
   auto ExecuteAtomicCommit(AtomicCommitArgs &args) -> int;
+  void CleanFailedCommit();
+  void WaitLastFrame();
   auto ActivateDisplayUsingDPMS() -> int;
 
   void StopThread() {
@@ -94,7 +96,7 @@ class DrmAtomicStateManager {
 
     /* To avoid setting the inactive state twice, which will fail the commit */
     bool crtc_active_state{};
-  } active_frame_state_;
+  } active_frame_state_s;
 
   auto NewFrameState() -> KmsState {
     auto *prev_frame_state = &active_frame_state_;
@@ -103,6 +105,10 @@ class DrmAtomicStateManager {
         .crtc_active_state = prev_frame_state->crtc_active_state,
     };
   }
+  
+  auto FillAtomicModeReq(drmModeAtomicReq* pset, AtomicCommitArgs &args, 
+                         DrmDevice *drm, KmsState& new_frame_state, 
+                         uint64_t out_fence, uint64_t wb_fence) -> int;
 
   DrmDisplayPipeline *pipe_{};
 
