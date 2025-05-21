@@ -712,12 +712,6 @@ void ComposerClient::ExecuteDisplayCommand(const DisplayCommand& command) {
     return;
   }
 
-  if (command.brightness) {
-    // TODO: Implement support for display brightness.
-    cmd_result_writer_->AddError(hwc3::Error::kUnsupported);
-    return;
-  }
-
   hwc3::Error error = ValidateColorTransformMatrix(
       command.colorTransformMatrix);
   if (error != hwc3::Error::kNone) {
@@ -732,6 +726,10 @@ void ComposerClient::ExecuteDisplayCommand(const DisplayCommand& command) {
 
   if (cmd_result_writer_->HasError()) {
     return;
+  }
+
+  if (command.brightness) {
+    ExecuteSetDisplayBrightness(command.display, *command.brightness);
   }
 
   if (command.clientTarget) {
@@ -946,8 +944,13 @@ ndk::ScopedAStatus ComposerClient::getDisplayCapabilities(
     int64_t display_id, std::vector<DisplayCapability>* caps) {
   DEBUG_FUNC();
   const std::unique_lock lock(hwc_->GetResMan().GetMainLock());
-  if (GetDisplay(display_id) == nullptr) {
+  HwcDisplay* display = GetDisplay(display_id);
+  if (display == nullptr) {
     return ToBinderStatus(hwc3::Error::kBadDisplay);
+  }
+  if (!display->IsInHeadlessMode() &&
+      display->GetPipe().connector->Get()->HasBacklight()) {
+    caps->emplace_back(DisplayCapability::BRIGHTNESS);
   }
 
   // Skip color transform altogether if device/drm cannot support it.
@@ -1609,6 +1612,28 @@ std::string ComposerClient::Dump() {
   auto binder = BnComposerClient::createBinder();
   AIBinder_setInheritRt(binder.get(), true);
   return binder;
+}
+
+void ComposerClient::ExecuteSetDisplayBrightness(
+    uint64_t display_id, const DisplayBrightness& brightness) {
+  auto* display = GetDisplay(display_id);
+  if (display == nullptr) {
+    cmd_result_writer_->AddError(hwc3::Error::kBadDisplay);
+    return;
+  }
+
+  if (!display->GetPipe().connector->Get()->HasBacklight() ||
+      display->IsInHeadlessMode()) {
+    cmd_result_writer_->AddError(hwc3::Error::kUnsupported);
+    return;
+  }
+
+  if (!display->GetPipe().connector->Get()->SetBrightness(
+          brightness.brightness >= 0.0F
+              ? std::optional<float>(brightness.brightness)
+              : std::nullopt)) {
+    cmd_result_writer_->AddError(hwc3::Error::kBadParameter);
+  }
 }
 
 void ComposerClient::ExecuteSetDisplayClientTarget(

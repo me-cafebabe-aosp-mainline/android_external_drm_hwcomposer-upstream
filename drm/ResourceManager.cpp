@@ -19,6 +19,7 @@
 #include "ResourceManager.h"
 
 #include <android-base/strings.h>
+#include <dirent.h>
 #include <sys/stat.h>
 
 #include <ctime>
@@ -29,6 +30,7 @@
 #include "drm/DrmDevice.h"
 #include "drm/DrmDisplayPipeline.h"
 #include "drm/DrmPlane.h"
+#include "utils/SysfsBacklightController.h"
 #include "utils/log.h"
 #include "utils/properties.h"
 
@@ -139,14 +141,83 @@ auto ResourceManager::GetTimeMonotonicNs() -> int64_t {
   return (int64_t(ts.tv_sec) * kNsInSec) + int64_t(ts.tv_nsec);
 }
 
+void ResourceManager::UpdateBacklights(
+    const std::vector<DrmConnector *> &connectors) {
+  assert(GetMainLock().owns_lock());
+
+  const auto &bl = SysfsBacklightController::EnumerateBacklights();
+
+  // Remove missing backlights from associated connectors.
+  for (const auto &conn : connectors) {
+    if (conn->HasBacklight() &&
+        bl.find(conn->GetBacklightName()) == bl.end()) {
+      ALOGI("Removing backlight %s from Connector %s",
+            conn->GetBacklightName().c_str(), conn->GetName().c_str());
+      conn->SetBacklight(nullptr);
+    }
+  }
+
+  // Remove missing backlights from the ResourceManager.
+  auto i = sysfs_backlights_.begin();
+  while (i != sysfs_backlights_.end()) {
+    if (bl.find(i->first) == bl.end()) {
+      i = sysfs_backlights_.erase(i);
+    } else {
+      ++i;
+    }
+  }
+
+  // Add any new backlights to our list.
+  for (const auto &i : bl) {
+    // This assumes backlight names are unique and that a backlight with the
+    // same name and different attributes could not replace another.
+    if (sysfs_backlights_.find(i) != sysfs_backlights_.end())
+      continue;
+
+    std::unique_ptr<BacklightController> controller(
+        SysfsBacklightController::CreateInstanceFromName(i));
+    if (controller) {
+      ALOGI("Adding backlight %s to the ResourceManager", i.c_str());
+      sysfs_backlights_.emplace(i, std::move(controller));
+    } else {
+      ALOGE("Failed to initialize backlight controller %s, marking absent\n",
+            i.c_str());
+      sysfs_backlights_.emplace(i, std::nullopt);
+    }
+  }
+}
+
+void ResourceManager::TryAssignBacklightToConnector(DrmConnector *conn) {
+  // Very simple first come first served assignment on internal connectors for
+  // now. This will need to change when multiple backlights are present, but
+  // hopefully we will have a more deterministic way to map backlight->connector
+  // before that happens.
+  if (!conn->IsInternal() || conn->HasBacklight() || sysfs_backlights_.empty())
+    return;
+
+  for (auto &bl : sysfs_backlights_) {
+    // Backlight is already assigned.
+    if (bl.second == std::nullopt)
+      continue;
+
+    // Claim this backlight for the connector.
+    conn->SetBacklight(std::move(*bl.second));
+    bl.second = std::nullopt;
+    return;
+  }
+}
+
 void ResourceManager::UpdateFrontendDisplays() {
   auto ordered_connectors = GetOrderedConnectors();
+
+  UpdateBacklights(ordered_connectors);
 
   for (auto *conn : ordered_connectors) {
     conn->UpdateModes();
     auto connected = conn->IsConnected();
     auto attached = attached_pipelines_.count(conn) != 0;
 
+    TryAssignBacklightToConnector(conn);
     if (connected != attached) {
       ALOGI("%s connector %s", connected ? "Attaching" : "Detaching",
             conn->GetName().c_str());

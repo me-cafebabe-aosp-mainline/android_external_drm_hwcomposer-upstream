@@ -103,7 +103,9 @@ filegroup {
 
         "stats/CompositionStats.cpp",
 
+        "utils/BacklightController.cpp",
         "utils/LibdisplayEdidWrapper.cpp",
+        "utils/SysfsBacklightController.cpp",
         "utils/fd.cpp",
         "utils/properties.cpp",
     ],
@@ -275,9 +277,17 @@ cc_test_host {
     srcs: [
         "stats/CompositionStats.cpp",
         "stats/CompositionStatsTest.cpp",
+        "utils/BacklightController.cpp",
+        "utils/BacklightControllerTest.cpp",
+        "utils/SysfsBacklightController.cpp",
+        "utils/SysfsBacklightControllerTest.cpp",
     ],
     static_libs: [
         "libgmock",
         "libgtest",
+    ],
+    shared_libs: [
+        "libbase",
+        "liblog",
     ],
 }

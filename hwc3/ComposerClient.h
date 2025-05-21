@@ -176,6 +176,8 @@ class ComposerClient : public BnComposerClient {
 
   // Display commands
   void ExecuteDisplayCommand(const DisplayCommand& command);
+  void ExecuteSetDisplayBrightness(uint64_t display_id,
+                                   const DisplayBrightness& brightness);
   void ExecuteSetDisplayClientTarget(uint64_t display_id,
                                      const ClientTarget& command);
   void ExecuteSetDisplayOutputBuffer(uint64_t display_id, const Buffer& buffer);

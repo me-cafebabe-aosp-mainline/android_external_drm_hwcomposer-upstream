@@ -25,6 +25,7 @@
 #include "DrmFbImporter.h"
 #include "DrmProperty.h"
 #include "UEventListener.h"
+#include "utils/BacklightController.h"
 
 namespace android {
 
@@ -77,10 +78,16 @@ class ResourceManager {
 
  private:
   auto GetOrderedConnectors() -> std::vector<DrmConnector *>;
+  void UpdateBacklights(const std::vector<DrmConnector *> &connectors);
+  void TryAssignBacklightToConnector(DrmConnector *conn);
   void UpdateFrontendDisplays();
   void DetachAllFrontendDisplays();
 
   std::vector<std::unique_ptr<DrmDevice>> drms_;
+  // Tracks available backlights. Once a backlight is assigned to a connector,
+  // it is marked as std::nullopt.
+  std::map<std::string, std::optional<std::unique_ptr<BacklightController>>>
+      sysfs_backlights_;
   std::set<std::string> displays_;
 
   // Android properties:
