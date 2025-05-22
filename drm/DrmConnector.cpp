@@ -180,6 +180,16 @@ auto DrmConnector::Init()-> bool {
   return true;
 }
 
+void DrmConnector::SetBacklight(
+    std::unique_ptr<BacklightController> backlight) {
+  backlight_controller_ = std::move(backlight);
+}
+
+auto DrmConnector::SetBrightness(std::optional<float> brightness) -> bool {
+  return HasBacklight() ? backlight_controller_->SetBrightness(brightness)
+                        : false;
+}
+
 int DrmConnector::UpdateEdidProperty() {
   return GetOptionalConnectorProperty("EDID", &edid_property_) ? 0 : -EINVAL;
 }
