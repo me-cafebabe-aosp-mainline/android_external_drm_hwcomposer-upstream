@@ -662,10 +662,7 @@ void ComposerClient::DispatchLayerCommand(int64_t display_handle,
       buffer_handle = ::android::makeFromAidl(*command.buffer->handle);
     }
 
-    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-const-cast)
-    auto fence = const_cast<::ndk::ScopedFileDescriptor&>(command.buffer->fence)
-                     .release();
-
+    auto fence = command.buffer->fence.dup().release();
     auto lp = hwc3_layer->HandleNextBuffer(buffer_handle,
                                            ::android::MakeSharedFd(fence),
                                            command.buffer->slot);
@@ -1595,10 +1592,7 @@ void ComposerClient::ExecuteSetDisplayClientTarget(
     raw_buffer = ::android::makeFromAidl(*command.buffer.handle);
   }
 
-  // NOLINTNEXTLINE(cppcoreguidelines-pro-type-const-cast)
-  auto fence = const_cast<::ndk::ScopedFileDescriptor&>(command.buffer.fence)
-                   .release();
-
+  auto fence = command.buffer.fence.dup().release();
   auto properties = hwc3layer->HandleNextBuffer(raw_buffer,
                                                 ::android::MakeSharedFd(fence),
                                                 command.buffer.slot);
@@ -1639,9 +1633,7 @@ void ComposerClient::ExecuteSetDisplayOutputBuffer(int64_t display_handle,
     raw_buffer = ::android::makeFromAidl(*buffer.handle);
   }
 
-  // NOLINTNEXTLINE(cppcoreguidelines-pro-type-const-cast)
-  auto fence = const_cast<::ndk::ScopedFileDescriptor&>(buffer.fence).release();
-
+  auto fence = buffer.fence.dup().release();
   auto properties = hwc3layer->HandleNextBuffer(raw_buffer,
                                                 ::android::MakeSharedFd(fence),
                                                 buffer.slot);
