@@ -46,11 +46,10 @@ auto DrmAtomicStateManager::CreateInstance(DrmDisplayPipeline *pipe)
   return dasm;
 }
 
-// NOLINTNEXTLINE (readability-function-cognitive-complexity): Fixme
-auto DrmAtomicStateManager::CommitFrame(AtomicCommitArgs &args) -> int {
-  // NOLINTNEXTLINE(misc-const-correctness)
-  ATRACE_CALL();
-
+auto DrmAtomicStateManager::FillAtomicModeReq(
+      drmModeAtomicReq* pset, AtomicCommitArgs &args, 
+      DrmDevice *drm, KmsState& new_frame_state, 
+      uint64_t out_fence, uint64_t wb_fence) -> int {
   if (args.active && *args.active == active_frame_state_.crtc_active_state) {
     /* Don't set the same state twice */
     args.active.reset();
@@ -66,17 +65,13 @@ auto DrmAtomicStateManager::CommitFrame(AtomicCommitArgs &args) -> int {
     args.active = true;
   }
 
-  auto new_frame_state = NewFrameState();
-
   auto *crtc = pipe_->crtc->Get();
 
-  auto pset = MakeDrmModeAtomicReqUnique();
   if (!pset) {
     ALOGE("Failed to allocate property set");
     return -ENOMEM;
   }
 
-  int wb_fence = -1;
 
   if (pipe_->writeback_connector && args.writeback_fb) {
     if (!pipe_->writeback_connector->Get()
@@ -95,7 +90,7 @@ auto DrmAtomicStateManager::CommitFrame(AtomicCommitArgs &args) -> int {
 
     if (!pipe_->writeback_connector->Get()
              ->GetWritebackOutFenceProperty()
-             .AtomicSet(*pset, uint64_t(&wb_fence))) {
+             .AtomicSet(*pset, wb_fence)) {
       ALOGE(
           "DrmAtomicStateManager: Failed to set writeback OUT_FENCE_PTR "
           "property");
@@ -109,15 +104,13 @@ auto DrmAtomicStateManager::CommitFrame(AtomicCommitArgs &args) -> int {
     }
   }
 
-  int out_fence = -1;
-  if (!crtc->GetOutFencePtrProperty().AtomicSet(*pset, uint64_t(&out_fence))) {
+  if (!crtc->GetOutFencePtrProperty().AtomicSet(*pset, out_fence)) {
     return -EINVAL;
   }
 
   bool nonblock = !args.blocking;
   auto *connector = pipe_->connector->Get();
   if (args.active) {
-    nonblock = false;
     new_frame_state.crtc_active_state = *args.active;
     if (!crtc->GetActiveProperty().AtomicSet(*pset, *args.active ? 1 : 0) ||
         !connector->GetCrtcIdProperty().AtomicSet(*pset, crtc->GetId())) {
@@ -131,7 +124,6 @@ auto DrmAtomicStateManager::CommitFrame(AtomicCommitArgs &args) -> int {
     }
   }
 
-  auto *drm = pipe_->device;
   if (args.display_mode) {
     new_frame_state.mode_blob = args.display_mode.value().CreateModeBlob(*drm);
 
@@ -242,6 +234,46 @@ auto DrmAtomicStateManager::CommitFrame(AtomicCommitArgs &args) -> int {
       }
     }
   }
+  return 0;
+}
+
+void DrmAtomicStateManager::WaitLastFrame() {
+  if (last_present_fence_) {
+    // NOLINTNEXTLINE(misc-const-correctness)
+    ATRACE_NAME("WaitPriorFramePresented");
+
+    constexpr int kTimeoutMs = 500;
+    const int err = sync_wait(*last_present_fence_, kTimeoutMs);
+    if (err != 0) {
+      ALOGE("sync_wait(fd=%i) returned: %i (errno: %i)", *last_present_fence_,
+            err, errno);
+    }
+
+    CleanupPriorFrameResources();
+  }
+}
+
+// NOLINTNEXTLINE (readability-function-cognitive-complexity): Fixme
+auto DrmAtomicStateManager::CommitFrame(AtomicCommitArgs &args) -> int {
+  // NOLINTNEXTLINE(misc-const-correctness)
+  ATRACE_CALL();
+  
+  auto new_frame_state = NewFrameState();
+  auto *drm = pipe_->device;
+  int out_fence = -1;
+  int wb_fence = -1;
+  auto pset = MakeDrmModeAtomicReqUnique();
+  if (!pset) {
+    ALOGE("Failed to allocate property set");
+    return -ENOMEM;
+  }
+  auto err = FillAtomicModeReq(pset.get(), args, drm, new_frame_state, 
+                               uint64_t(&out_fence), uint64_t(&wb_fence));
+  if (err != 0) {
+    ALOGE("FillAtomicModeReq returned: %i (errno: %i)", err, errno);
+    return err;
+  }
+
 
   uint32_t flags = DRM_MODE_ATOMIC_ALLOW_MODESET;
   const int error_buf_max_size = 64;
@@ -256,25 +288,16 @@ auto DrmAtomicStateManager::CommitFrame(AtomicCommitArgs &args) -> int {
     return err;
   }
 
-  if (last_present_fence_) {
-    // NOLINTNEXTLINE(misc-const-correctness)
-    ATRACE_NAME("WaitPriorFramePresented");
+  WaitLastFrame();
 
-    constexpr int kTimeoutMs = 500;
-    const int err = sync_wait(*last_present_fence_, kTimeoutMs);
-    if (err != 0) {
-      ALOGE("sync_wait(fd=%i) returned: %i (errno: %i)", *last_present_fence_,
-            err, errno);
-    }
-
-    CleanupPriorFrameResources();
-  }
+  bool nonblock = !args.blocking && !args.active;
 
   if (nonblock) {
     flags |= DRM_MODE_ATOMIC_NONBLOCK;
   }
 
-  auto err = drmModeAtomicCommit(*drm->GetFd(), pset.get(), flags, drm);
+  err = drmModeAtomicCommit(*drm->GetFd(), pset.get(), flags, drm);
+
   if (err != 0) {
     ALOGE("Failed to commit pset ret=%d errno=%d strerror=%s\n", err, errno,
           strerror_r(errno, err_buf, error_buf_max_size));
@@ -365,6 +388,17 @@ void DrmAtomicStateManager::CleanupPriorFrameResources() {
   last_present_fence_ = {};
 }
 
+void DrmAtomicStateManager::CleanFailedCommit() {
+  // Disable the hw used by the last active composition. This allows us to
+  // signal the release fences from that composition to avoid hanging.
+  AtomicCommitArgs cl_args{};
+  cl_args.composition = std::make_shared<DrmKmsPlan>();
+  if (CommitFrame(cl_args) != 0) {
+    ALOGE("Failed to clean-up active composition for pipeline %s",
+          pipe_->connector->Get()->GetName().c_str());
+  }
+}
+
 auto DrmAtomicStateManager::ExecuteAtomicCommit(AtomicCommitArgs &args) -> int {
   auto err = CommitFrame(args);
 
@@ -372,14 +406,7 @@ auto DrmAtomicStateManager::ExecuteAtomicCommit(AtomicCommitArgs &args) -> int {
     if (err != 0) {
       ALOGE("Composite failed for pipeline %s",
             pipe_->connector->Get()->GetName().c_str());
-      // Disable the hw used by the last active composition. This allows us to
-      // signal the release fences from that composition to avoid hanging.
-      AtomicCommitArgs cl_args{};
-      cl_args.composition = std::make_shared<DrmKmsPlan>();
-      if (CommitFrame(cl_args) != 0) {
-        ALOGE("Failed to clean-up active composition for pipeline %s",
-              pipe_->connector->Get()->GetName().c_str());
-      }
+      CleanFailedCommit();
       return err;
     }
   }
