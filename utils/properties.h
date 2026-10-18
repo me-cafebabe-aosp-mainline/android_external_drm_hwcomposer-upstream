@@ -68,6 +68,12 @@ class Properties {
 
   static auto EnableBacklightControl() -> bool;
 
+  /*
+   * Reconnect a connected display whose mode list changed on hotplug, so that
+   * the client loads the new modes (e.g. virtual GPUs that follow the window).
+   */
+  static auto ReconnectOnModesChange() -> bool;
+
   static auto ShouldAvoidUsingAlphaBitsForFramebuffer() -> bool;
   static auto ShouldDisablePlanes() -> bool;
   static auto GetEdidOverridePath(std::string conn) -> std::string;

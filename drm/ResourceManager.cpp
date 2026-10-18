@@ -21,6 +21,7 @@
 #include <linux/time.h>
 #include <sys/stat.h>
 
+#include <algorithm>
 #include <chrono>
 #include <condition_variable>
 #include <cstdint>
@@ -41,6 +42,7 @@
 #include "drm/DrmConnector.h"
 #include "drm/DrmDevice.h"
 #include "drm/DrmDisplayPipeline.h"
+#include "drm/DrmMode.h"
 #include "drm/UEventListener.h"
 #if HAS_LIBDISPLAY_INFO
 #include "utils/EdidWrapper.h"
@@ -51,6 +53,14 @@
 namespace android::drm_hwcomposer {
 
 namespace {
+
+auto SameModes(const std::vector<DrmMode> &a, const std::vector<DrmMode> &b)
+    -> bool {
+  return std::equal(a.begin(), a.end(), b.begin(), b.end(),
+                    [](const DrmMode &x, const DrmMode &y) {
+                      return x == y.GetRawMode();
+                    });
+}
 
 // Quirk flags for connectors identified via EDID manufacturer ID.
 enum ConnectorQuirk : uint32_t {
@@ -271,9 +281,19 @@ void ResourceManager::UpdateFrontendDisplays() {
   auto ordered_connectors = GetOrderedConnectors();
 
   for (auto *conn : ordered_connectors) {
+    auto old_modes = conn->GetModes();
     conn->UpdateModes();
     auto connected = conn->IsConnected();
     auto attached = attached_pipelines_.count(conn) != 0;
+
+    // An empty list may be transient right after the uevent: do not reconnect.
+    if (connected && attached && !conn->GetModes().empty() &&
+        !SameModes(old_modes, conn->GetModes()) &&
+        Properties::ReconnectOnModesChange()) {
+      ALOGI("Modes of connector %s changed, reconnecting",
+            conn->GetName().c_str());
+      frontend_interface_->NotifyDisplayModesChanged(attached_pipelines_[conn]);
+    }
 
     if (connected != attached) {
       ALOGI("%s connector %s", connected ? "Attaching" : "Detaching",

@@ -266,6 +266,12 @@ auto Properties::EnableBacklightControl() -> bool {
                             kDefault) != 0);
 }
 
+auto Properties::ReconnectOnModesChange() -> bool {
+  constexpr int kDefault = 0;
+  return (property_get_bool("vendor.hwc.drm.reconnect_on_modes_change",
+                            kDefault) != 0);
+}
+
 auto Properties::MinDisplayBrightness() -> float {
   char buf[PROPERTY_VALUE_MAX] = {};
   const int prop_length = property_get("vendor.hwc.drm.min_display_brightness",

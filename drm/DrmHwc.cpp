@@ -210,6 +210,25 @@ void DrmHwc::NotifyHdcpTermination(
   }
 }
 
+void DrmHwc::NotifyDisplayModesChanged(
+    std::shared_ptr<DrmDisplayPipeline> pipeline) {
+  if (display_handles_.count(pipeline) == 0) {
+    ALOGE("%s, can't find the display, pipeline: %p", __func__, pipeline.get());
+    return;
+  }
+
+  auto handle = display_handles_[pipeline];
+  auto *display = GetDisplay(handle);
+  if (display == nullptr) {
+    ALOGE("%s, display is null for handle: %" PRIu64, __func__, handle);
+    return;
+  }
+
+  // Regenerates the configs and queues a connected event, which the client
+  // handles as a reconnect of a known display.
+  display->SetPipeline(std::move(pipeline));
+}
+
 void DrmHwc::RequestHdcpNegotiation(DisplayHandle display_handle) {
   auto *display = GetDisplay(display_handle);
   if (display == nullptr) {

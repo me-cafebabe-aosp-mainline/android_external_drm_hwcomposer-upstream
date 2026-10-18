@@ -103,6 +103,10 @@ class DrmHwc : public PipelineToFrontendBindingInterface, public StatsProvider {
   void NotifyHdcpTermination(
       std::shared_ptr<DrmDisplayPipeline> pipeline) override;
 
+  // Reconnect a display whose modes changed
+  void NotifyDisplayModesChanged(
+      std::shared_ptr<DrmDisplayPipeline> pipeline) override;
+
   // Should be done for all successful modesets (full and seamless).
   void LogRefreshRateChanges();
 
